@@ -15,6 +15,8 @@ function normalizeTrack(row) {
     id: row.id,
     title: row.title,
     artist: row.artist || 'Personal Track',
+    album: row.album || row.title || 'Single',
+    addedAt: row.created_at || row.added_at || '',
     duration: row.duration || 0,
     cover: row.cover_url,
     src: row.audio_url,
@@ -29,7 +31,7 @@ export async function loadTracks() {
 
   const { data, error } = await supabase
     .from('songs')
-    .select('id, title, artist, duration, cover_url, audio_url, blurb')
+    .select('id, title, artist, album, duration, cover_url, audio_url, blurb, created_at, added_at')
     .order('created_at', { ascending: true });
 
   if (error || !data?.length) {

@@ -145,6 +145,21 @@ function slugify(value) {
     .replace(/^-+|-+$/g, '');
 }
 
+function formatAddedDate(value, index = 0) {
+  const fallback = new Date(2025, 6, 30 + index);
+  const date = value ? new Date(value) : fallback;
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Recently added';
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+}
+
 function App() {
   const audioRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -161,6 +176,7 @@ function App() {
   const [duration, setDuration] = useState(0);
   const [isLooping, setIsLooping] = useState(false);
   const [volume, setVolume] = useState(0.72);
+  const [trackDurations, setTrackDurations] = useState({});
   const [waveformBars, setWaveformBars] = useState(() => Array.from({ length: 28 }, () => 8));
   const [statusMessage, setStatusMessage] = useState('Loading your library...');
   const [showSplash, setShowSplash] = useState(true);
@@ -298,13 +314,63 @@ function App() {
   }, [currentTrackId]);
 
   useEffect(() => {
+    let isCancelled = false;
+
+    async function hydrateDurations() {
+      const nextEntries = await Promise.all(
+        trackList.map(
+          (track) =>
+            new Promise((resolve) => {
+              if (track.duration > 0) {
+                resolve([track.id, track.duration]);
+                return;
+              }
+
+              const probe = new Audio();
+              probe.preload = 'metadata';
+              probe.src = track.src;
+
+              const finalize = (value) => {
+                probe.removeAttribute('src');
+                probe.load();
+                resolve([track.id, value]);
+              };
+
+              probe.addEventListener('loadedmetadata', () => finalize(probe.duration || 0), { once: true });
+              probe.addEventListener('error', () => finalize(0), { once: true });
+            }),
+        ),
+      );
+
+      if (isCancelled) {
+        return;
+      }
+
+      setTrackDurations(Object.fromEntries(nextEntries));
+    }
+
+    hydrateDurations();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [trackList]);
+
+  useEffect(() => {
     const audio = audioRef.current;
     if (!audio) {
       return undefined;
     }
 
     const handleTimeUpdate = () => setProgress(audio.currentTime);
-    const handleLoadedMetadata = () => setDuration(audio.duration || 0);
+    const handleLoadedMetadata = () => {
+      const nextDuration = audio.duration || 0;
+      setDuration(nextDuration);
+      setTrackDurations((currentValue) => ({
+        ...currentValue,
+        [currentTrackId]: nextDuration || currentValue[currentTrackId] || 0,
+      }));
+    };
     const handleEnded = () => {
       setIsPlaying(false);
       setProgress(0);
@@ -338,12 +404,12 @@ function App() {
 
     audio.pause();
     audio.load();
-    audio.loop = isLooping;
     setIsPlaying(false);
     setProgress(0);
+    setDuration(trackDurations[currentTrack.id] || currentTrack.duration || 0);
     stopWaveformLoop();
     setWaveformBars(Array.from({ length: 28 }, () => 8));
-  }, [currentTrack?.src, isLooping]);
+  }, [currentTrack?.src, trackDurations]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -583,6 +649,89 @@ function App() {
 
   function handleVolumeChange(event) {
     setVolume(Number(event.target.value));
+  }
+
+  function getTrackDuration(track) {
+    return trackDurations[track.id] || track.duration || 0;
+  }
+
+  function renderSongRows(mode = 'search') {
+    const tracks = mode === 'search' ? filteredTracks : trackList;
+
+    return (
+      <div className="song-table">
+        <div className="song-table__header">
+          <span>#</span>
+          <span>Title</span>
+          <span>Album</span>
+          <span>Date added</span>
+          <span>Duration</span>
+          <span className="song-table__actions-heading">Actions</span>
+        </div>
+
+        <div className="song-table__body">
+          {tracks.map((track, index) => {
+            const isActive = track.id === currentTrack?.id;
+            const resolvedDuration = getTrackDuration(track);
+
+            return (
+              <article
+                className={isActive ? 'song-row is-active' : 'song-row'}
+                key={track.id}
+                onClick={() => handlePlayTrack(track.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    handlePlayTrack(track.id);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <span className="song-row__index">{index + 1}</span>
+                <div className="song-row__title">
+                  <img src={track.cover} alt={`${track.title} cover art`} />
+                  <div>
+                    <strong>{track.title}</strong>
+                    <span>{track.artist}</span>
+                  </div>
+                </div>
+                <p className="song-row__album">{track.album || track.title}</p>
+                <p className="song-row__date">{formatAddedDate(track.addedAt, index)}</p>
+                <span className="song-row__duration">{formatTime(isActive ? duration || resolvedDuration : resolvedDuration)}</span>
+                <div className="song-row__actions">
+                  <span className={isActive ? 'song-row__badge is-visible' : 'song-row__badge'}>{isPlaying && isActive ? 'Playing' : 'Ready'}</span>
+                  {mode === 'library' && isAdmin ? (
+                    <>
+                      <button
+                        type="button"
+                        className="table-action"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          startEditingTrack(track);
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="table-action table-action--danger"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDeleteTrack(track);
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    );
   }
 
   function handleAdminFieldChange(event) {
@@ -986,19 +1135,7 @@ function App() {
             ))}
           </div>
         </div>
-        <div className="track-list">
-          {filteredTracks.map((track) => (
-            <button type="button" className="track-row" key={track.id} onClick={() => handlePlayTrack(track.id)}>
-              <img src={track.cover} alt={`${track.title} cover art`} />
-              <div className="track-copy">
-                <strong>{track.title}</strong>
-                <span>{track.artist}</span>
-              </div>
-              <p>{track.blurb}</p>
-              <span>{track.id === currentTrack?.id ? formatTime(duration || track.duration) : formatTime(track.duration)}</span>
-            </button>
-          ))}
-        </div>
+        {renderSongRows('search')}
       </section>
     );
   }
@@ -1028,51 +1165,40 @@ function App() {
           </div>
         </div>
         {editStatus ? <p className="inline-note">{editStatus}</p> : null}
-        <div className="playlist-grid">
-          {trackList.map((track) => (
-            <article className="playlist-card" key={track.id}>
-              <img src={track.cover} alt={`${track.title} cover art`} />
-              {editingTrackId === track.id ? (
-                <div className="edit-stack">
-                  <input name="title" value={editForm.title} onChange={handleEditFieldChange} />
-                  <input name="artist" value={editForm.artist} onChange={handleEditFieldChange} />
-                  <textarea name="blurb" rows="3" value={editForm.blurb} onChange={handleEditFieldChange} />
-                  <input type="file" accept="image/*" onChange={handleEditFileChange} />
-                  <div className="card-actions">
-                    <button type="button" onClick={() => handleSaveEdit(track)} disabled={isSavingEdit}>
-                      {isSavingEdit ? 'Saving...' : 'Save'}
-                    </button>
-                    <button type="button" className="ghost-button" onClick={() => setEditingTrackId('')}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <h3>{track.title}</h3>
-                    <p>{track.blurb}</p>
-                  </div>
-                  <div className="card-actions">
-                    <button type="button" onClick={() => handlePlayTrack(track.id)}>
-                      Play track
-                    </button>
-                    {isAdmin ? (
-                      <>
-                        <button type="button" className="ghost-button" onClick={() => startEditingTrack(track)}>
-                          Edit
-                        </button>
-                        <button type="button" className="danger-button" onClick={() => handleDeleteTrack(track)}>
-                          Delete
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
-                </>
-              )}
-            </article>
-          ))}
-        </div>
+        {editingTrackId ? (
+          <article className="account-card edit-drawer">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">edit track</p>
+                <h2>{editForm.title || 'Selected track'}</h2>
+              </div>
+            </div>
+            <div className="edit-stack">
+              <input name="title" value={editForm.title} onChange={handleEditFieldChange} />
+              <input name="artist" value={editForm.artist} onChange={handleEditFieldChange} />
+              <textarea name="blurb" rows="3" value={editForm.blurb} onChange={handleEditFieldChange} />
+              <input type="file" accept="image/*" onChange={handleEditFileChange} />
+              <div className="card-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const track = trackList.find((item) => item.id === editingTrackId);
+                    if (track) {
+                      handleSaveEdit(track);
+                    }
+                  }}
+                  disabled={isSavingEdit}
+                >
+                  {isSavingEdit ? 'Saving...' : 'Save'}
+                </button>
+                <button type="button" className="ghost-button" onClick={() => setEditingTrackId('')}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </article>
+        ) : null}
+        {renderSongRows('library')}
       </section>
     );
   }
