@@ -1,5 +1,6 @@
-const CACHE_NAME = 'vibin-shell-v1';
-const APP_SHELL = ['/', '/manifest.webmanifest', '/branding/vibin-logo.png'];
+const CACHE_NAME = 'vibin-shell-v2';
+const BASE_PATH = new URL(self.registration.scope).pathname;
+const APP_SHELL = [BASE_PATH, `${BASE_PATH}manifest.webmanifest`, `${BASE_PATH}branding/vibin-logo.png`];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
