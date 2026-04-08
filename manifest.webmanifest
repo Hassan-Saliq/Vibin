@@ -1,0 +1,23 @@
+{
+  "name": "vibin",
+  "short_name": "vibin",
+  "description": "Premium dark-themed music app with a clean Gen Z aesthetic.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A0A0F",
+  "theme_color": "#0A0A0F",
+  "icons": [
+    {
+      "src": "/branding/vibin-logo.png",
+      "sizes": "768x768",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/branding/vibin-logo.png",
+      "sizes": "768x768",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
