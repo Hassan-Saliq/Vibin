@@ -11,6 +11,20 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => undefined);
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      registrations.forEach((registration) => {
+        registration.unregister();
+      });
+    });
+  });
+}
+
+if ('caches' in window) {
+  window.addEventListener('load', () => {
+    window.caches.keys().then((keys) => {
+      keys.forEach((key) => {
+        window.caches.delete(key);
+      });
+    });
   });
 }
